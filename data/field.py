@@ -43,10 +43,7 @@ class RawField(object):
 
 
     def preprocess(self, x):
-        """ Preprocess an example if the `preprocessing` Pipeline is provided. """
-        if self.preprocessing is not None:
-            return self.preprocessing(x)
-        else:
+
             return x
 
     def process(self, batch, *args, **kwargs):
@@ -152,7 +149,7 @@ class TextField(RawField):
                     ".", "?", "!", ",", ":", "-", "--", "...", ";"]
 
     def __init__(self, use_vocab=True, init_token="None", eos_token=None, fix_length=None, dtype=torch.long,
-                 preprocessing=None, postprocessing=None, lower=False, tokenize=(lambda s: s.split()),
+                 preprocessing=None, postprocessing=None, lower=False, 
                  remove_punctuation=False, include_lengths=False, batch_first=True, pad_token="<|padding|>",
                  unk_token="<|endoftext|>", pad_first=False, truncate_first=False, vectors=None, nopoints=True):
         self.use_vocab = use_vocab
@@ -161,7 +158,6 @@ class TextField(RawField):
         self.fix_length = fix_length
         self.dtype = dtype
         self.lower = lower
-        self.tokenize = get_tokenizer(tokenize)
         self.remove_punctuation = remove_punctuation
         self.include_lengths = include_lengths
         self.batch_first = batch_first
@@ -174,26 +170,12 @@ class TextField(RawField):
         if nopoints:
             self.punctuations.append("..")
 
-        # self.encoder = get_encoder()
-
-        # self.encoder = GPT2Tokenizer.from_pretrained("gpt2",TOKENIZERS_PARALLELISM=False)
         self.encoder = AutoTokenizer.from_pretrained("./jasminemodel/eyad-bs")
 
         super(TextField, self).__init__(preprocessing, postprocessing)
         
 #DELETE THIS PART
-    def preprocess(self, x):
-        if six.PY2 and isinstance(x, six.string_types) and not isinstance(x, six.text_type):
-            x = six.text_type(x, encoding='utf-8')
-        if self.lower:
-            x = six.text_type.lower(x)
-        x = self.tokenize(x.rstrip('\n'))
-        if self.remove_punctuation:
-            x = [w for w in x if w not in self.punctuations]
-        if self.preprocessing is not None:
-            return self.preprocessing(x)
-        else:
-            return x
+
 
     def process(self, batch, device=None):
 
@@ -381,7 +363,7 @@ class TextField(RawField):
 class ImagesField(RawField):
     def __init__(self, images_path=None, load_in_tmp = True, preprocessing=None, postprocessing=None, ):
         self.image_path = images_path
-        self.processor = AutoProcessor.from_pretrained("openai/clip-vit-base-patch32", cache_dir = "/home/abdo95/scratch/Visual-Jasmine")
+        self.processor = AutoProcessor.from_pretrained("openai/clip-vit-large-patch14",cache_dir = "./")
 
         tmp_images_path = os.path.join('/tmp', os.path.basename(images_path))
 
@@ -434,7 +416,7 @@ import os
 class ImagesField_noncoco(RawField):
     def __init__(self, img_path, preprocessing=None, postprocessing=None):
 
-        self.processor = AutoProcessor.from_pretrained("openai/clip-vit-base-patch32",cache_dir = "/home/abdo95/scratch/Visual-Jasmine")
+        self.processor = AutoProcessor.from_pretrained("openai/clip-vit-base-patch32",cache_dir = "./")
         self.path = img_path
         self.hf = h5py.File(self.path, 'r')
         super(ImagesField_noncoco, self).__init__(preprocessing, postprocessing)

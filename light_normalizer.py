@@ -16,9 +16,9 @@ class light_normalizer():
 	"""A class for shared functions"""
     # Initializing 
 	def __init__(self):
-		print ("Loading Light Normalizer (depending on lighting conditions)... ", end=' ') 
+		#print ("Loading Light Normalizer (depending on lighting conditions)... ", end=' ') 
 		self.Arabic_normalized_chars= {u"\u0622":u"\u0627", u"\u0623":u"\u0627", u"\u0625":u"\u0627", u"\u0649":u"\u064A", u"\u0629":u"\u0647"}
-		print ("Done")
+		#print ("Done")
 	def normalizeArabicChar(self,inputText):
 		norm=""
 		for char in inputText:

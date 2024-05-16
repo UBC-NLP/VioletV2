@@ -56,7 +56,7 @@ class VisualEncoder(MultiLevelEncoder):
         self.dropout = nn.Dropout(p=self.dropout)
         self.layer_norm = nn.LayerNorm(self.d_model)
 
-    def forward(self, input, attention_weights=None):
+    def forward(self, inputs, attention_weights=None):
         # out = F.relu(self.fc(input))
 
 
@@ -64,4 +64,4 @@ class VisualEncoder(MultiLevelEncoder):
         # out = self.dropout(out)
         # out = self.layer_norm(out)
 
-        return super(VisualEncoder, self).forward(input, attention_weights=attention_weights)
+        return super(VisualEncoder, self).forward(inputs, attention_weights=attention_weights)

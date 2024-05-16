@@ -1,7 +1,9 @@
 import random
+from dataset_refactored import Coco_Dataset
 import wandb
 from data import ImagesField, TextField, RawField,ImagesField_noncoco
-from data import COCO,DataLoader,XM3600, CC3M
+from data import COCO,XM3600, CC3M
+from torch.utils.data import DataLoader
 import evaluation
 from evaluation import PTBTokenizer, Cider
 from models.transformer import Violet, VisualEncoder, ScaledDotProductAttentionMemory, ScaledDotProductAttention
@@ -17,7 +19,7 @@ import multiprocessing
 from shutil import copyfile
 from sys import exit
 import logging
-from transformers import AutoProcessor, CLIPVisionModelWithProjection
+from transformers import AutoProcessor, CLIPVisionModelWithProjection, AutoTokenizer
 from transformers import AdamW
 from torch import nn
 # from accelerate import Accelerator
@@ -28,7 +30,11 @@ from torch.nn import DataParallel as DDP
 from models.captioning_model import CaptioningModel
 from PIL import Image
 import glob
-
+import json
+from collections import defaultdict
+from pycocoevalcap.cider.cider import Cider
+from transformers import AutoTokenizer
+from light_normalizer import light_normalizer
 def check_memory(cuda_device):
     """ Check the total memory and occupied memory for GPU """
     devices_info = os.popen('"/usr/bin/nvidia-smi" --query-gpu=memory.total,memory.used --format=csv,nounits,noheader').read().strip().split("\n")
@@ -61,7 +67,7 @@ def evaluate_loss(model, dataloader, loss_fn, text_field):
     running_loss = .0
     with tqdm(desc='Epoch %d - validation' % e, unit='it', total=len(dataloader)) as pbar:
         with torch.no_grad():
-            for it, (images, captions) in enumerate(dataloader):
+            for it, (images, captions,_) in enumerate(dataloader):
 
 
                 images, captions = images.to(device), captions.to(device)
@@ -77,13 +83,49 @@ def evaluate_loss(model, dataloader, loss_fn, text_field):
 
     val_loss = running_loss / len(dataloader)
     return val_loss
+def load_references_from_json(file_path):
 
+    with open(file_path, 'r') as f:
+        data = json.load(f)
+    
+    captions_by_id = defaultdict(list)
+    for item in data["annotations"]:
+        captions_by_id[item['image_id']].append(item['caption'])
+    
+    return captions_by_id
+def evaluate_cider(gen_captions, ref_captions):
+    scorer = Cider()
+    cider_score, _ = scorer.compute_score(ref_captions, gen_captions)
+    print(f"CIDEr Score: {cider_score}")
+    return cider_score
+
+def evaluation(model, dataloader_val, ref_caps):
+    tokenizer = AutoTokenizer.from_pretrained("UBC-NLP/Jasmine-350M")
+    model.eval()
+    model = DDP(model.module)
+    model = model.to("cuda")
+    gen_caps = {}
+    with tqdm( unit='it', total=len(dataloader_val)) as pbar:
+        for it, (images, captions, ids) in enumerate(dataloader_val):
+            images, captions = images.to("cuda"), captions.to("cuda")
+
+            with torch.no_grad():
+                out, _ = model.module.beam_search(images, 40, tokenizer.vocab['<|endoftext|>'], 5, out_size=1)
+                generated_caption = tokenizer.batch_decode(out, skip_special_tokens=True)
+                output = {key: [value] for key,value in zip(ids[0], generated_caption)}
+
+            gen_caps = {**gen_caps, **output}
+            pbar.update()
+    # breakpoint()
+    # ref_caps = ref_caps[0:len(gen_caps)]
+    ref_caps = dict(list(ref_caps.items())[0:len(gen_caps)])
+    score = evaluate_cider(gen_caps, ref_caps)
+    return score
 
 def evaluate_metrics(model, dataloader, text_field, exp_name=None, epoch=0):
     import itertools
-    # processor = AutoProcessor.from_pretrained("openai/clip-vit-large-patch14")
     model.eval()
-
+    
     gen = {}
     gts = {}
     with tqdm(desc='Epoch %d - evaluation' % e, unit='it', total=len(dataloader)) as pbar:
@@ -91,7 +133,7 @@ def evaluate_metrics(model, dataloader, text_field, exp_name=None, epoch=0):
             
             images = images.to(device)
             with torch.no_grad():
-                out, _ = model.module.beam_search(images, 20, text_field.vocab.stoi['<|endoftext|>'], 5, out_size=1)
+                out, _ = model.module.beam_search(images, 40, text_field.vocab.stoi['<|endoftext|>'], 5, out_size=1)
             caps_gen = text_field.decode(out, join_words=False)
             for i, (gts_i, gen_i) in enumerate(zip(caps_gt, caps_gen)):
                 gen_i = ' '.join([k for k, g in itertools.groupby(gen_i)])
@@ -116,15 +158,10 @@ def train_xe(model, dataloader, text_field,gpt_optimizer,dataloader_eval,args):
     # Training with cross-entropy
     model.train()
     running_loss = .0
-    # accelerator = Accelerator()
-    # model, gpt_optimizer, dataloader = accelerator.prepare(
-    #  model, gpt_optimizer, dataloader)
     model = DDP(model.module)
     model.to(device)
     with tqdm(desc='Epoch %d - train' % e, unit='it', total=len(dataloader)) as pbar:
-        for it, (images, captions) in enumerate(dataloader):
-            # print(detections["pixel_values"].shape)
-            # detections = detections["pixel_values"].squeeze(1)
+        for it, (images, captions,_) in enumerate(dataloader):
 
             images, captions = images.to(device), captions.to(device)
 
@@ -138,7 +175,6 @@ def train_xe(model, dataloader, text_field,gpt_optimizer,dataloader_eval,args):
 
             loss.backward()
 
-            # accelerator.backward(loss)
             torch.nn.utils.clip_grad_norm_(model.module.parameters(), args.max_grad_norm)
 
             gpt_optimizer.step()
@@ -201,7 +237,7 @@ if __name__ == '__main__':
 
     os.environ["WANDB_API_KEY"] = "ee6091224cb7bb0fda72ab4cd492e55463c4813b"
     os.environ["TOKENIZERS_PARALLELISM"] = "True"
-    occupy_memory(os.environ["CUDA_VISIBLE_DEVICES"])
+   # occupy_memory(os.environ["CUDA_VISIBLE_DEVICES"])
     n_gpus = torch.cuda.device_count()
 
     logging.basicConfig(filename=args.log_file, level=logging.INFO)
@@ -223,27 +259,11 @@ if __name__ == '__main__':
 
     writer = SummaryWriter(log_dir=os.path.join(args.logs_folder, args.exp_name))
 
-    image_field = ImagesField(images_path=args.features_path, load_in_tmp=False)
-
-    # Pipeline for text
-    text_field = TextField(init_token='<|endoftext|>', eos_token='<|endoftext|>', lower=True, 
-                           remove_punctuation=True, nopoints=False)
-
     # Create the dataset
-    dataset = COCO(image_field, text_field, 'coco/images/', args.annotation_folder, args.annotation_folder,train_percentage=args.train_percentage,split_train_data=args.split_train_data)
-    train_dataset, val_dataset, test_dataset = dataset.splits
-    if not os.path.isfile('vocab_%s.pkl' % args.exp_name):
-        print("Building vocabulary")
-        text_field.build_GPT_vocab("jasminemodel/eyad-bs/vocab.json")
-        pickle.dump(text_field.vocab, open('vocab_%s.pkl' % args.exp_name, 'wb'))
-    else:
-        text_field.vocab = pickle.load(open('vocab_%s.pkl' % args.exp_name, 'rb'))
-
-
-
+    tokenizer = AutoTokenizer.from_pretrained("UBC-NLP/Jasmine-350M")
     # Model and dataloaders
     encoder = VisualEncoder(args.encoder_layer, 0, attention_module=ScaledDotProductAttention)
-    model = Violet(text_field.vocab.stoi['<|endoftext|>'], args.decoder_layer,tau=args.tau)
+    model = Violet(tokenizer.vocab['<|endoftext|>'], encoder, args.decoder_layer,tau=args.tau)
 
 
 
@@ -251,25 +271,25 @@ if __name__ == '__main__':
     model.to(device)
     for name, param in model.named_parameters():
 
-     if "h_lang" in name or "clip" in name and "visual_projection" not in name and "adapter" not in name  : #freeze language model and clip excpet for the projection head (and "visual_projection" not in name and "ln" not in name)
+     if "h_lang" in name or "clip" in name and "visual_projection" not in name and "adapter" not in name and "ln" not in name  : #freeze language model and clip excpet for the projection head and adapter
 
          param.requires_grad = False
     
-    dict_dataset_train = train_dataset.image_dictionary({'image': image_field, 'text': RawField()})
+    # dict_dataset_train = train_dataset.image_dictionary({'image': image_field, 'text': RawField()})
 
-    ref_caps_train = list(train_dataset.text)
+    # ref_caps_train = list(train_dataset.text)
 
-    cider_train=ref_caps_train
-    cider_train = Cider(PTBTokenizer.tokenize(ref_caps_train))
-
-
-    dict_dataset_val = val_dataset.image_dictionary({'image': image_field, 'text': RawField()})
-    dict_dataset_test = test_dataset.image_dictionary({'image': image_field, 'text': RawField()})
+    # cider_train=ref_caps_train
+    # cider_train = Cider(PTBTokenizer.tokenize(ref_caps_train))
 
 
+    # dict_dataset_val = val_dataset.image_dictionary({'image': image_field, 'text': RawField()})
+    # dict_dataset_test = test_dataset.image_dictionary({'image': image_field, 'text': RawField()})
 
 
-    total_step_number = int(len(train_dataset)/(args.batch_size * args.gradient_accumulation_steps)*100)
+
+
+    # total_step_number = int(len(train_dataset)/(args.batch_size * args.gradient_accumulation_steps)*100)
  
 
     if args.optimizer_type =="adamw":
@@ -282,7 +302,7 @@ if __name__ == '__main__':
  
 
 
-    loss_fn = NLLLoss(ignore_index=text_field.vocab.stoi['<|padding|>'])
+    loss_fn = NLLLoss(ignore_index=tokenizer.vocab['<|padding|>'])
     use_rl = False
     best_cider = .0
     best_loss = np.inf
@@ -311,92 +331,97 @@ if __name__ == '__main__':
                 data['epoch'], data['val_loss'], data['best_cider']))
 
     # use_rl=True
-    with wandb.init(mode="offline",project="VGPTAR",config=config):
-        wandb.watch(model,log="all", log_freq=1)
-        for e in range(start_epoch, start_epoch + 100):
-            dataloader_train = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.workers,
-                                        drop_last=True)
-            dataloader_val = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers,drop_last=True)
-            dict_dataloader_train = DataLoader(dict_dataset_train, batch_size=args.batch_size // 5, shuffle=True,
-                                            num_workers=args.workers)
-            dict_dataloader_val = DataLoader(dict_dataset_val, batch_size=args.batch_size // 5)
-            dict_dataloader_test = DataLoader(dict_dataset_test, batch_size=args.batch_size // 5)
+    # with wandb.init(mode="offline",project="VGPTAR",config=config):
+    #     wandb.watch(model,log="all", log_freq=1)
+    dataset_val = Coco_Dataset(split="val")
+    dataset_train = Coco_Dataset()
+    ref_caps = load_references_from_json("./annotations/clean_val_coco.json")
+   # dataloader_v = DataLoader(dataset, batch_size=args.batch_size, collate_fn = dataset.collate_fn, shuffle=False, num_workers=args.workers,drop_last=True)
+    
+   
+  
+    for e in range(start_epoch, start_epoch + 100):
+        dataloader_train = DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True, num_workers=args.workers,collate_fn = dataset_train.collate_fn,
+                                    drop_last=True)
+        dataloader_val = DataLoader(dataset_val, batch_size=args.batch_size, shuffle=False, num_workers=args.workers, collate_fn = dataset_val.collate_fn, drop_last=True)
+        # dict_dataloader_train = DataLoader(dict_dataset_train, batch_size=args.batch_size // 5, shuffle=True,
+        #                                 num_workers=args.workers)
+        # dict_dataloader_val = DataLoader(dict_dataset_val, batch_size=args.batch_size // 5)
+        # dict_dataloader_test = DataLoader(dict_dataset_test, batch_size=args.batch_size // 5)
 
 
-            train_loss = train_xe(model, dataloader_train, text_field,gpt_optimizer,dataloader_val,args)
+        train_loss = train_xe(model, dataloader_train, None,gpt_optimizer,dataloader_val,args)
 
-            writer.add_scalar('data/train_loss', train_loss, e)
+        writer.add_scalar('data/train_loss', train_loss, e)
 
-            # Validation loss
+        # Validation loss
 
-            val_loss = evaluate_loss(model, dataloader_val, loss_fn, text_field)
-            writer.add_scalar('data/val_loss', val_loss, e)
+        val_loss = evaluate_loss(model, dataloader_val, loss_fn, None)
+        writer.add_scalar('data/val_loss', val_loss, e)
+        val_cider = evaluation(model, dataloader_val, ref_caps)
+        # Validation scores
 
-            # Validation scores
+        # scores = evaluate_metrics(model, dict_dataloader_val, text_field, args.exp_name+"_val", str(e))
+        # val_cider = scores['CIDEr']
+        # print("Cider score so far  "+str(scores['CIDEr']))
+        # writer.add_scalar('data/val_cider', val_cider, e)
+        # writer.add_scalar('data/val_bleu1', scores['BLEU'][0], e)
+        # writer.add_scalar('data/val_bleu4', scores['BLEU'][3], e)
+        # writer.add_scalar('data/val_rouge', scores['ROUGE'], e)
 
-            scores = evaluate_metrics(model, dict_dataloader_val, text_field, args.exp_name+"_val", str(e))
-            val_cider = scores['CIDEr']
-            print("Cider score so far  "+str(scores['CIDEr']))
-            writer.add_scalar('data/val_cider', val_cider, e)
-            writer.add_scalar('data/val_bleu1', scores['BLEU'][0], e)
-            writer.add_scalar('data/val_bleu4', scores['BLEU'][3], e)
-            writer.add_scalar('data/val_rouge', scores['ROUGE'], e)
-
-            logging.info("val cider"+str(val_cider)+"current epoch "+str(e))
-            logging.info("val bleu1" + str(scores["BLEU"][0]) + "current epoch " + str(e))
-            logging.info("val bleu4" + str(scores["BLEU"][3]) + "current epoch " + str(e))
-            logging.info("val rouge" + str(scores["ROUGE"]) + "current epoch " + str(e))
-
-
-
-            # # Test scores
-            # scores = evaluate_metrics(model, dict_dataloader_test, text_field, args.exp_name+"_test", str(e))
-            # writer.add_scalar('data/test_cider', scores['CIDEr'], e)
-            # writer.add_scalar('data/test_bleu1', scores['BLEU'][0], e)
-            # writer.add_scalar('data/test_bleu4', scores['BLEU'][3], e)
-            # writer.add_scalar('data/test_meteor', scores['METEOR'], e)
-            # writer.add_scalar('data/test_rouge', scores['ROUGE'], e)
-
-            # logging.info("test cider" + str(scores['CIDEr']) + "current epoch " + str(e))
-            # logging.info("test bleu1" + str(scores["BLEU"][0]) + "current epoch " + str(e))
-            # logging.info("test bleu4" + str(scores["BLEU"][3]) + "current epoch " + str(e))
-            # logging.info("test meteor" + str(scores["METEOR"]) + "current epoch " + str(e))
-            # logging.info("test rouge" + str(scores["ROUGE"]) + "current epoch " + str(e))
-            best = False
-            if val_cider >= best_cider:
-                best_cider = val_cider
-                patience +=1
-                best = True
-            else:
-                patience = 0
+        # logging.info("val cider"+str(val_cider)+"current epoch "+str(e))
+        # logging.info("val bleu1" + str(scores["BLEU"][0]) + "current epoch " + str(e))
+        # logging.info("val bleu4" + str(scores["BLEU"][3]) + "current epoch " + str(e))
+        # logging.info("val rouge" + str(scores["ROUGE"]) + "current epoch " + str(e))
 
 
 
-            if patience == 30:
-                break
-            torch.save({
-                'torch_rng_state': torch.get_rng_state(),
-                'cuda_rng_state': torch.cuda.get_rng_state(),
-                'numpy_rng_state': np.random.get_state(),
-                'random_rng_state': random.getstate(),
-                'epoch': e,
-                'val_loss': val_loss,
-                'val_cider': val_cider,
-                'state_dict': model.module.state_dict(),
-                'optimizer': gpt_optimizer.state_dict(),
-                'patience': patience,
-                'best_cider': best_cider,
-                'use_rl': use_rl,
-            }, 'saved_models/%s_last.pth' % args.exp_name)
+        # # Test scores
+        # scores = evaluate_metrics(model, dict_dataloader_test, text_field, args.exp_name+"_test", str(e))
+        # writer.add_scalar('data/test_cider', scores['CIDEr'], e)
+        # writer.add_scalar('data/test_bleu1', scores['BLEU'][0], e)
+        # writer.add_scalar('data/test_bleu4', scores['BLEU'][3], e)
+        # writer.add_scalar('data/test_meteor', scores['METEOR'], e)
+        # writer.add_scalar('data/test_rouge', scores['ROUGE'], e)
 
-            if best:
-                copyfile('saved_models/%s_last.pth' % args.exp_name, 'saved_models/%s_best.pth' % args.exp_name)
-            wandb.log({"Cider score  ": val_cider})
-            wandb.log({"train_loss  ": train_loss})
-            wandb.log({"loss_val  ": val_loss})
-            wandb.log({"BLEU4 score  ": scores['BLEU'][3]})
-            wandb.log({"ROUGE score  ": scores['ROUGE']})
-            
+        # logging.info("test cider" + str(scores['CIDEr']) + "current epoch " + str(e))
+        # logging.info("test bleu1" + str(scores["BLEU"][0]) + "current epoch " + str(e))
+        # logging.info("test bleu4" + str(scores["BLEU"][3]) + "current epoch " + str(e))
+        # logging.info("test meteor" + str(scores["METEOR"]) + "current epoch " + str(e))
+        # logging.info("test rouge" + str(scores["ROUGE"]) + "current epoch " + str(e))
+        best = False
+        if val_cider >= best_cider:
+            best_cider = val_cider
+            patience +=1
+            best = True
+        else:
+            patience = 0
 
-#field.process
-#PTBTokenizer.tokenize
+
+
+        if patience == 30:
+            break
+        torch.save({
+            'torch_rng_state': torch.get_rng_state(),
+            'cuda_rng_state': torch.cuda.get_rng_state(),
+            'numpy_rng_state': np.random.get_state(),
+            'random_rng_state': random.getstate(),
+            'epoch': e,
+            'val_loss': val_loss,
+            'val_cider': val_cider,
+            'state_dict': model.module.state_dict(),
+            'optimizer': gpt_optimizer.state_dict(),
+            'patience': patience,
+            'best_cider': best_cider,
+            'use_rl': use_rl,
+        }, 'saved_models/%s_last.pth' % args.exp_name)
+
+        if best:
+            copyfile('saved_models/%s_last.pth' % args.exp_name, 'saved_models/%s_best.pth' % args.exp_name)
+        # wandb.log({"Cider score  ": val_cider})
+        # wandb.log({"train_loss  ": train_loss})
+        # wandb.log({"loss_val  ": val_loss})
+        # wandb.log({"BLEU4 score  ": scores['BLEU'][3]})
+        # wandb.log({"ROUGE score  ": scores['ROUGE']})
+        
+

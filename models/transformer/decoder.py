@@ -291,7 +291,7 @@ class GPTNeoMLP(nn.Module):
         embed_dim = config.n_embd
         self.c_fc = nn.Linear(embed_dim, intermediate_size)
         self.c_proj = nn.Linear(intermediate_size, embed_dim)
-
+        self.adapter = Adapter(config)
         self.act = activations.get_activation("gelu_new")
         self.dropout = nn.Dropout(float(0.0))
 
@@ -300,7 +300,10 @@ class GPTNeoMLP(nn.Module):
         hidden_states = self.act(hidden_states)
         hidden_states = self.c_proj(hidden_states)
         hidden_states = self.dropout(hidden_states)
-        return hidden_states
+        a = self.adapter(hidden_states)
+
+        res = a + hidden_states # add res back
+        return res
 
 class GPTNeoMLP_lang(nn.Module):
     def __init__(self, intermediate_size, config):  # in MLP: intermediate_size= 4 * hidden_size
@@ -309,7 +312,7 @@ class GPTNeoMLP_lang(nn.Module):
         self.c_fc = nn.Linear(embed_dim, intermediate_size)
         self.c_proj = nn.Linear(intermediate_size, embed_dim)
         self.act = activations.get_activation("gelu_new")
-        # self.adapter = Adapter(config)
+        
 
         self.dropout = nn.Dropout(float(0.0))
 
@@ -318,9 +321,7 @@ class GPTNeoMLP_lang(nn.Module):
         hidden_states = self.act(hidden_states)
         hidden_states = self.c_proj(hidden_states)
 
-        # a = self.adapter(hidden_states)
 
-        # res = a + hidden_states # add res back
 
         return hidden_states
 
