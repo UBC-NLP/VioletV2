@@ -5,7 +5,7 @@ Techincal report coming soon!
 ## Data
 Coco Images HDF5 file: [Download](https://mbzuaiac-my.sharepoint.com/:u:/g/personal/abdelrahman_mohamed_mbzuai_ac_ae/EZUDaVbRzGFJuYbYnU_jZ0YBnjZgPSuG32Z6wlLeCT22iQ?e=fI1rG0)
 
-Annotations: [Download](https://mbzuaiac-my.sharepoint.com/:u:/g/personal/abdelrahman_mohamed_mbzuai_ac_ae/EZUDaVbRzGFJuYbYnU_jZ0YBnjZgPSuG32Z6wlLeCT22iQ?e=fI1rG0](https://mbzuaiac-my.sharepoint.com/:u:/g/personal/abdelrahman_mohamed_mbzuai_ac_ae/EXkwLG9hEE5EimCVLsVpHTwB6EadaXDCXBII3lBquptmjw?e=fD24oa))
+Annotations: [Download](https://mbzuaiac-my.sharepoint.com/:u:/g/personal/abdelrahman_mohamed_mbzuai_ac_ae/EXkwLG9hEE5EimCVLsVpHTwB6EadaXDCXBII3lBquptmjw?e=fD24oa)
 
 
 ## Environment setup
