@@ -15,14 +15,14 @@ class Coco_Dataset(Dataset):
 
        if split =="train":
         if ann_root is None:
-                self.ann_root = "./annotations/clean_train_coco.json"
+                self.ann_root = "./annotations/NLLB_train_coco.json"
         else:
-                 self.ann_root = str(ann_root)+"/clean_train_coco.json"
+                 self.ann_root = str(ann_root)+"/NLLB_train_coco.json"
        else:
             if ann_root is None:
-                    self.ann_root = "./annotations/clean_val_coco.json"
+                    self.ann_root = "./annotations/NLLB_val_coco.json"
             else:
-                    self.ann_root = str(ann_root)+"/clean_val_coco.json"
+                    self.ann_root = str(ann_root)+"/NLLB_val_coco.json"
        self.processor = AutoProcessor.from_pretrained("openai/clip-vit-large-patch14",cache_dir = "./")
        self.tokenizer = AutoTokenizer.from_pretrained("UBC-NLP/Jasmine-350M")
        self.hf = h5py.File(self.img_root, 'r')
