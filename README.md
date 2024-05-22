@@ -2,6 +2,9 @@
 # VioletV2
 Techincal report coming soon!
 
+## Data
+Coco Images HDF5 file: [Images](https://mbzuaiac-my.sharepoint.com/:u:/g/personal/abdelrahman_mohamed_mbzuai_ac_ae/EZUDaVbRzGFJuYbYnU_jZ0YBnjZgPSuG32Z6wlLeCT22iQ?e=fI1rG0)
+
 
 ## Environment setup
 Clone the repository and create the `Violet` conda environmnet
@@ -10,7 +13,12 @@ Clone the repository and create the `Violet` conda environmnet
 ```
 conda env create -f violet.yml
 ```
+make logs and saved_models directories
 
+```
+mkdir logs
+mkdir saved_models
+```
 ## Train the model (refactored code)
 ```
 python train_refactored.py --batch_size 40 --head 12 --tau 0.3 --images_path coco_images.h5  --annotation_folder annotations --lr 1e-4 --random_seed 42 --log_file logs/log --decoder_layer 12 --optimizer_type adamw  --gradient_accumulation_steps 1  --exp_name violet
@@ -20,7 +28,7 @@ python train_refactored.py --batch_size 40 --head 12 --tau 0.3 --images_path coc
 
 ## Train the model (legacy code)
 ```
-python train_legacy.py --batch_size 40 --head 12 --tau 0.3 --images_path ./coco_images.h5  --annotation_folder annotations --lr 1e-4 --random_seed 42 --log_file logs/log --decoder_layer 12 --optimizer_type adamw  --gradient_accumulation_steps 1  --exp_name violet
+python train_legacy.py --batch_size 60 --head 12 --tau 0.3 --images_path ./coco_images.h5  --annotation_folder annotations --lr 1e-4 --random_seed 42 --log_file logs/log --decoder_layer 12 --optimizer_type adamw  --gradient_accumulation_steps 1  --exp_name violet
 ```
 
 ## Train the model (refactored code)
