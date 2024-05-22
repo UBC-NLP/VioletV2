@@ -11,12 +11,16 @@ Clone the repository and create the `Violet` conda environmnet
 conda env create -f violet.yml
 ```
 
+## Train the model (refactored code)
+```
+python train_refactored.py --batch_size 40 --head 12 --tau 0.3 --images_path coco_images.h5  --annotation_folder annotations --lr 1e-4 --random_seed 42 --log_file logs/log --decoder_layer 12 --optimizer_type adamw  --gradient_accumulation_steps 1  --exp_name violet
+```
 
 
 
 ## Train the model (legacy code)
 ```
-python train_legacy.py --batch_size 40 --head 12 --tau 0.3 --images_path coco_images.h5  --annotation_folder annotations --lr 1e-4 --random_seed 42 --log_file logs/log --decoder_layer 12 --optimizer_type adamw  --gradient_accumulation_steps 1  --exp_name violet"
+python train_legacy.py --batch_size 40 --head 12 --tau 0.3 --images_path coco_images.h5  --annotation_folder annotations --lr 1e-4 --random_seed 42 --log_file logs/log --decoder_layer 12 --optimizer_type adamw  --gradient_accumulation_steps 1  --exp_name violet
 ```
 
 ## Train the model (refactored code)
