@@ -1,6 +1,6 @@
 
 # VioletV2
-###Techincal report coming soon!
+### Techincal report coming soon!
 
 Spoilers: The model is similar to the original [paper](https://arxiv.org/abs/2311.08844) but replaces the cumbersome detection network with a CLIP vision encoder (which can be trained end-to-end without relying on an external model), and utilizes adapters  and utilizies adapters on the decoder side
 ## Data
