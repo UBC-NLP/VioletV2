@@ -11,11 +11,18 @@ from light_normalizer import light_normalizer
 import pandas as pd
 class Coco_Dataset(Dataset):
     def __init__(self, img_root=None, ann_root=None, split="train"):
-       self.img_root = "/l/users/israfel.salazar/abdo/coco_images.h5"
+       self.img_root = img_root
+
        if split =="train":
-             self.ann_root = "./annotations/clean_train_coco.json"
+        if ann_root is None:
+                self.ann_root = "./annotations/clean_train_coco.json"
+        else:
+                 self.ann_root = str(ann_root)+"/clean_train_coco.json"
        else:
-             self.ann_root = "./annotations/clean_val_coco.json"
+            if ann_root is None:
+                    self.ann_root = "./annotations/clean_val_coco.json"
+            else:
+                    self.ann_root = str(ann_root)+"/clean_val_coco.json"
        self.processor = AutoProcessor.from_pretrained("openai/clip-vit-large-patch14",cache_dir = "./")
        self.tokenizer = AutoTokenizer.from_pretrained("UBC-NLP/Jasmine-350M")
        self.hf = h5py.File(self.img_root, 'r')

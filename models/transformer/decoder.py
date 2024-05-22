@@ -302,7 +302,7 @@ class GPTNeoMLP(nn.Module):
         hidden_states = self.dropout(hidden_states)
         a = self.adapter(hidden_states)
 
-        res = a + hidden_states # add res back
+        res = a + hidden_states 
         return res
 
 class GPTNeoMLP_lang(nn.Module):

@@ -61,7 +61,7 @@ def occupy_memory(cuda_device):
 
 
 
-def evaluate_loss(model, dataloader, loss_fn, text_field):
+def evaluate_loss(model, dataloader, loss_fn):
     # Validation loss
     model.eval()
     running_loss = .0
@@ -116,46 +116,15 @@ def evaluation(model, dataloader_val, ref_caps):
 
             gen_caps = {**gen_caps, **output}
             pbar.update()
-    # breakpoint()
-    # ref_caps = ref_caps[0:len(gen_caps)]
     ref_caps = dict(list(ref_caps.items())[0:len(gen_caps)])
     score = evaluate_cider(gen_caps, ref_caps)
     return score
 
-def evaluate_metrics(model, dataloader, text_field, exp_name=None, epoch=0):
-    import itertools
-    model.eval()
-    
-    gen = {}
-    gts = {}
-    with tqdm(desc='Epoch %d - evaluation' % e, unit='it', total=len(dataloader)) as pbar:
-        for it, (images, caps_gt) in enumerate(iter(dataloader)):
-            
-            images = images.to(device)
-            with torch.no_grad():
-                out, _ = model.module.beam_search(images, 40, text_field.vocab.stoi['<|endoftext|>'], 5, out_size=1)
-            caps_gen = text_field.decode(out, join_words=False)
-            for i, (gts_i, gen_i) in enumerate(zip(caps_gt, caps_gen)):
-                gen_i = ' '.join([k for k, g in itertools.groupby(gen_i)])
-                gen['%d_%d' % (it, i)] = [gen_i, ]
-                gts['%d_%d' % (it, i)] = gts_i
-                #gts['%d_%d' % (it, i)] = text_field.decode(gts_i[1::], join_words=False)
-                #plt.imshow(np.transpose(images[i].cpu().detach().numpy(), (1, 2, 0)))
-                #text_field.decode(gts_i[1::], join_words=False)
-
-            pbar.update()
-
-    gts = evaluation.PTBTokenizer.tokenize(gts)
-    gen = evaluation.PTBTokenizer.tokenize(gen)
 
 
-
-    scores, _ = evaluation.compute_scores(gts, gen)
-    return scores
-
-
-def train_xe(model, dataloader, text_field,gpt_optimizer,dataloader_eval,args):
+def train_xe(model, dataloader,optimizer,dataloader_eval,args):
     # Training with cross-entropy
+    
     model.train()
     running_loss = .0
     model = DDP(model.module)
@@ -177,9 +146,9 @@ def train_xe(model, dataloader, text_field,gpt_optimizer,dataloader_eval,args):
 
             torch.nn.utils.clip_grad_norm_(model.module.parameters(), args.max_grad_norm)
 
-            gpt_optimizer.step()
-            gpt_optimizer.zero_grad()
-
+            optimizer.step()
+            optimizer.zero_grad()
+            
 
             this_loss = loss.item()
             running_loss += this_loss
@@ -197,19 +166,19 @@ if __name__ == '__main__':
     current_time = now.strftime("%d-%b-%H:%M:%S")
     parser = argparse.ArgumentParser(description='Violet')
     parser.add_argument('--exp_name', type=str, default='Violet'+str(current_time))
-    parser.add_argument('--batch_size', type=int, default=50)
+    parser.add_argument('--batch_size', type=int, default=40)
     parser.add_argument("--eval_batch_size", default=32, type=int,
                         help="Total batch size for eval.")
     parser.add_argument('--workers', type=int, default=5)
     parser.add_argument('--head', type=int, default=12)
     parser.add_argument('--resume_last', action='store_true')
     parser.add_argument('--resume_best', action='store_true')
-    parser.add_argument('--features_path', type=str)
+    parser.add_argument('--images_path', type=str, default="/l/users/israfel.salazar/abdo/coco_images.h5")
     parser.add_argument('--annotation_folder', type=str)
     parser.add_argument('--logs_folder', type=str, default='tensorboard_logs')
     parser.add_argument('--random_seed', type = int, default="42")
     parser.add_argument('--lr', type = float, default=1e-4)
-    parser.add_argument('--log_file',type = str, default="log/visualGPT.txt")
+    parser.add_argument('--log_file',type = str, default="log/Violet.txt")
     parser.add_argument('--gradient_accumulation_steps', type=int, default=1,
                         help="Number of updates steps to accumulate before performing a backward/update pass.")
 
@@ -221,7 +190,6 @@ if __name__ == '__main__':
     parser.add_argument('--max_grad_norm', default=1.0, type = float)
     parser.add_argument('--train_percentage', default=1.0, type = float)
     parser.add_argument('--split_train_data', action="store_true")
-    parser.add_argument('--reinforcement_lr',type = float, default=1e-5)
     parser.add_argument("--decoder_layer", type= int, default = 12)
     parser.add_argument("--encoder_layer",type=int, default=3)
     parser.add_argument("--tau",type=float, default = 0.0)
@@ -235,7 +203,7 @@ if __name__ == '__main__':
     args.batch_size = args.batch_size // args.gradient_accumulation_steps
     
 
-    os.environ["WANDB_API_KEY"] = "ee6091224cb7bb0fda72ab4cd492e55463c4813b"
+    #os.environ["WANDB_API_KEY"] = "add your key"
     os.environ["TOKENIZERS_PARALLELISM"] = "True"
    # occupy_memory(os.environ["CUDA_VISIBLE_DEVICES"])
     n_gpus = torch.cuda.device_count()
@@ -248,7 +216,6 @@ if __name__ == '__main__':
     config = dict(
         batch_size=args.batch_size,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
-        train_percentage = args.train_percentage,
         name = args.exp_name
     )
     torch.cuda.manual_seed_all(args.random_seed)
@@ -266,7 +233,7 @@ if __name__ == '__main__':
     model = Violet(tokenizer.vocab['<|endoftext|>'], encoder, args.decoder_layer,tau=args.tau)
 
 
-
+    #using dataparallel, module is needed to access the model
     model = DDP(model)
     model.to(device)
     for name, param in model.named_parameters():
@@ -275,31 +242,16 @@ if __name__ == '__main__':
 
          param.requires_grad = False
     
-    # dict_dataset_train = train_dataset.image_dictionary({'image': image_field, 'text': RawField()})
-
-    # ref_caps_train = list(train_dataset.text)
-
-    # cider_train=ref_caps_train
-    # cider_train = Cider(PTBTokenizer.tokenize(ref_caps_train))
-
-
-    # dict_dataset_val = val_dataset.image_dictionary({'image': image_field, 'text': RawField()})
-    # dict_dataset_test = test_dataset.image_dictionary({'image': image_field, 'text': RawField()})
-
-
-
-
-    # total_step_number = int(len(train_dataset)/(args.batch_size * args.gradient_accumulation_steps)*100)
  
 
     if args.optimizer_type =="adamw":
         
-        gpt_optimizer = AdamW(model.module.parameters(),lr=args.lr,betas=(0.9, 0.999), eps=1e-8)
+        optimizer = AdamW(model.module.parameters(),lr=args.lr,betas=(0.9, 0.999), eps=1e-8)
   
     elif args.optimizer_type =="adam":
         optimizer = Adam(model.module.parameters(), lr = args.lr)
 
- 
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience = 3, factor = 0.5)
 
 
     loss_fn = NLLLoss(ignore_index=tokenizer.vocab['<|padding|>'])
@@ -322,7 +274,7 @@ if __name__ == '__main__':
             np.random.set_state(data['numpy_rng_state'])
             random.setstate(data['random_rng_state'])
             model.load_state_dict(data['state_dict'], strict=False)
-            gpt_optimizer.load_state_dict(data['optimizer'])
+            optimizer.load_state_dict(data['optimizer'])
             start_epoch = data['epoch'] + 1
             best_cider = data['best_cider']
             patience = data['patience']
@@ -330,65 +282,35 @@ if __name__ == '__main__':
             print('Resuming from epoch %d, validation loss %f, and best cider %f' % (
                 data['epoch'], data['val_loss'], data['best_cider']))
 
-    # use_rl=True
-    # with wandb.init(mode="offline",project="VGPTAR",config=config):
+    #### Uncomment to use wandb and adjust indentation
+    # with wandb.init(mode="offline",project="Violet",config=config):
     #     wandb.watch(model,log="all", log_freq=1)
-    dataset_val = Coco_Dataset(split="val")
-    dataset_train = Coco_Dataset()
+    dataset_train = Coco_Dataset(img_root = args.images_path)
+    dataset_val = Coco_Dataset(img_root = args.images_path, split="val")
+
     ref_caps = load_references_from_json("./annotations/clean_val_coco.json")
-   # dataloader_v = DataLoader(dataset, batch_size=args.batch_size, collate_fn = dataset.collate_fn, shuffle=False, num_workers=args.workers,drop_last=True)
-    
-   
-  
+    flag = 0
     for e in range(start_epoch, start_epoch + 100):
         dataloader_train = DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True, num_workers=args.workers,collate_fn = dataset_train.collate_fn,
                                     drop_last=True)
         dataloader_val = DataLoader(dataset_val, batch_size=args.batch_size, shuffle=False, num_workers=args.workers, collate_fn = dataset_val.collate_fn, drop_last=True)
-        # dict_dataloader_train = DataLoader(dict_dataset_train, batch_size=args.batch_size // 5, shuffle=True,
-        #                                 num_workers=args.workers)
-        # dict_dataloader_val = DataLoader(dict_dataset_val, batch_size=args.batch_size // 5)
-        # dict_dataloader_test = DataLoader(dict_dataset_test, batch_size=args.batch_size // 5)
 
 
-        train_loss = train_xe(model, dataloader_train, None,gpt_optimizer,dataloader_val,args)
+
+        train_loss = train_xe(model, dataloader_train,optimizer,dataloader_val,args)
 
         writer.add_scalar('data/train_loss', train_loss, e)
 
         # Validation loss
 
-        val_loss = evaluate_loss(model, dataloader_val, loss_fn, None)
+        val_loss = evaluate_loss(model, dataloader_val, loss_fn)
+        scheduler.step(val_loss)
         writer.add_scalar('data/val_loss', val_loss, e)
-        val_cider = evaluation(model, dataloader_val, ref_caps)
+        if flag %2 ==0:
+            val_cider = evaluation(model, dataloader_val, ref_caps)
         # Validation scores
+        flag +=1
 
-        # scores = evaluate_metrics(model, dict_dataloader_val, text_field, args.exp_name+"_val", str(e))
-        # val_cider = scores['CIDEr']
-        # print("Cider score so far  "+str(scores['CIDEr']))
-        # writer.add_scalar('data/val_cider', val_cider, e)
-        # writer.add_scalar('data/val_bleu1', scores['BLEU'][0], e)
-        # writer.add_scalar('data/val_bleu4', scores['BLEU'][3], e)
-        # writer.add_scalar('data/val_rouge', scores['ROUGE'], e)
-
-        # logging.info("val cider"+str(val_cider)+"current epoch "+str(e))
-        # logging.info("val bleu1" + str(scores["BLEU"][0]) + "current epoch " + str(e))
-        # logging.info("val bleu4" + str(scores["BLEU"][3]) + "current epoch " + str(e))
-        # logging.info("val rouge" + str(scores["ROUGE"]) + "current epoch " + str(e))
-
-
-
-        # # Test scores
-        # scores = evaluate_metrics(model, dict_dataloader_test, text_field, args.exp_name+"_test", str(e))
-        # writer.add_scalar('data/test_cider', scores['CIDEr'], e)
-        # writer.add_scalar('data/test_bleu1', scores['BLEU'][0], e)
-        # writer.add_scalar('data/test_bleu4', scores['BLEU'][3], e)
-        # writer.add_scalar('data/test_meteor', scores['METEOR'], e)
-        # writer.add_scalar('data/test_rouge', scores['ROUGE'], e)
-
-        # logging.info("test cider" + str(scores['CIDEr']) + "current epoch " + str(e))
-        # logging.info("test bleu1" + str(scores["BLEU"][0]) + "current epoch " + str(e))
-        # logging.info("test bleu4" + str(scores["BLEU"][3]) + "current epoch " + str(e))
-        # logging.info("test meteor" + str(scores["METEOR"]) + "current epoch " + str(e))
-        # logging.info("test rouge" + str(scores["ROUGE"]) + "current epoch " + str(e))
         best = False
         if val_cider >= best_cider:
             best_cider = val_cider
@@ -410,7 +332,7 @@ if __name__ == '__main__':
             'val_loss': val_loss,
             'val_cider': val_cider,
             'state_dict': model.module.state_dict(),
-            'optimizer': gpt_optimizer.state_dict(),
+            'optimizer': optimizer.state_dict(),
             'patience': patience,
             'best_cider': best_cider,
             'use_rl': use_rl,

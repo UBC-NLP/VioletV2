@@ -170,7 +170,7 @@ class TextField(RawField):
         if nopoints:
             self.punctuations.append("..")
 
-        self.encoder = AutoTokenizer.from_pretrained("./jasminemodel/eyad-bs")
+        self.encoder = AutoTokenizer.from_pretrained("UBC-NLP/Jasmine-350M")
 
         super(TextField, self).__init__(preprocessing, postprocessing)
         

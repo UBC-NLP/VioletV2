@@ -6,6 +6,7 @@ import evaluation
 from evaluation import PTBTokenizer, Cider
 from models.transformer import Violet, VisualEncoder, ScaledDotProductAttentionMemory, ScaledDotProductAttention
 import torch
+from transformers import AutoProcessor, CLIPVisionModelWithProjection, AutoTokenizer
 from torch.optim import Adam
 from torch.nn import NLLLoss
 from tqdm import tqdm
@@ -81,7 +82,7 @@ def evaluate_loss(model, dataloader, loss_fn, text_field):
 
 def evaluate_metrics(model, dataloader, text_field, exp_name=None, epoch=0):
     import itertools
-    # processor = AutoProcessor.from_pretrained("openai/clip-vit-large-patch14")
+
     model.eval()
 
     gen = {}
@@ -116,15 +117,11 @@ def train_xe(model, dataloader, text_field,gpt_optimizer,dataloader_eval,args):
     # Training with cross-entropy
     model.train()
     running_loss = .0
-    # accelerator = Accelerator()
-    # model, gpt_optimizer, dataloader = accelerator.prepare(
-    #  model, gpt_optimizer, dataloader)
+
     model = DDP(model.module)
     model.to(device)
     with tqdm(desc='Epoch %d - train' % e, unit='it', total=len(dataloader)) as pbar:
         for it, (images, captions) in enumerate(dataloader):
-            # print(detections["pixel_values"].shape)
-            # detections = detections["pixel_values"].squeeze(1)
 
             images, captions = images.to(device), captions.to(device)
 
@@ -138,7 +135,6 @@ def train_xe(model, dataloader, text_field,gpt_optimizer,dataloader_eval,args):
 
             loss.backward()
 
-            # accelerator.backward(loss)
             torch.nn.utils.clip_grad_norm_(model.module.parameters(), args.max_grad_norm)
 
             gpt_optimizer.step()
@@ -161,7 +157,7 @@ if __name__ == '__main__':
     current_time = now.strftime("%d-%b-%H:%M:%S")
     parser = argparse.ArgumentParser(description='Violet')
     parser.add_argument('--exp_name', type=str, default='Violet'+str(current_time))
-    parser.add_argument('--batch_size', type=int, default=50)
+    parser.add_argument('--batch_size', type=int, default=40)
     parser.add_argument("--eval_batch_size", default=32, type=int,
                         help="Total batch size for eval.")
     parser.add_argument('--workers', type=int, default=5)
@@ -185,7 +181,6 @@ if __name__ == '__main__':
     parser.add_argument('--max_grad_norm', default=1.0, type = float)
     parser.add_argument('--train_percentage', default=1.0, type = float)
     parser.add_argument('--split_train_data', action="store_true")
-    parser.add_argument('--reinforcement_lr',type = float, default=1e-5)
     parser.add_argument("--decoder_layer", type= int, default = 12)
     parser.add_argument("--encoder_layer",type=int, default=3)
     parser.add_argument("--tau",type=float, default = 0.0)
@@ -199,9 +194,9 @@ if __name__ == '__main__':
     args.batch_size = args.batch_size // args.gradient_accumulation_steps
     
 
-    os.environ["WANDB_API_KEY"] = "ee6091224cb7bb0fda72ab4cd492e55463c4813b"
+   # os.environ["WANDB_API_KEY"] = "your key"
     os.environ["TOKENIZERS_PARALLELISM"] = "True"
-    occupy_memory(os.environ["CUDA_VISIBLE_DEVICES"])
+   # occupy_memory(os.environ["CUDA_VISIBLE_DEVICES"])
     n_gpus = torch.cuda.device_count()
 
     logging.basicConfig(filename=args.log_file, level=logging.INFO)
@@ -232,18 +227,14 @@ if __name__ == '__main__':
     # Create the dataset
     dataset = COCO(image_field, text_field, 'coco/images/', args.annotation_folder, args.annotation_folder,train_percentage=args.train_percentage,split_train_data=args.split_train_data)
     train_dataset, val_dataset, test_dataset = dataset.splits
-    if not os.path.isfile('vocab_%s.pkl' % args.exp_name):
-        print("Building vocabulary")
-        text_field.build_GPT_vocab("jasminemodel/eyad-bs/vocab.json")
-        pickle.dump(text_field.vocab, open('vocab_%s.pkl' % args.exp_name, 'wb'))
-    else:
-        text_field.vocab = pickle.load(open('vocab_%s.pkl' % args.exp_name, 'rb'))
+    tokenizer = AutoTokenizer.from_pretrained("UBC-NLP/Jasmine-350M")
+    text_field.vocab = tokenizer.vocab
 
 
 
     # Model and dataloaders
     encoder = VisualEncoder(args.encoder_layer, 0, attention_module=ScaledDotProductAttention)
-    model = Violet(text_field.vocab.stoi['<|endoftext|>'], args.decoder_layer,tau=args.tau)
+    model = Violet(text_field.vocab['<|endoftext|>'], encoder, args.decoder_layer,tau=args.tau)
 
 
 
@@ -282,7 +273,7 @@ if __name__ == '__main__':
  
 
 
-    loss_fn = NLLLoss(ignore_index=text_field.vocab.stoi['<|padding|>'])
+    loss_fn = NLLLoss(ignore_index=text_field.vocab['<|padding|>'])
     use_rl = False
     best_cider = .0
     best_loss = np.inf
@@ -311,91 +302,91 @@ if __name__ == '__main__':
                 data['epoch'], data['val_loss'], data['best_cider']))
 
     # use_rl=True
-    with wandb.init(mode="offline",project="VGPTAR",config=config):
-        wandb.watch(model,log="all", log_freq=1)
-        for e in range(start_epoch, start_epoch + 100):
-            dataloader_train = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.workers,
-                                        drop_last=True)
-            dataloader_val = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers,drop_last=True)
-            dict_dataloader_train = DataLoader(dict_dataset_train, batch_size=args.batch_size // 5, shuffle=True,
-                                            num_workers=args.workers)
-            dict_dataloader_val = DataLoader(dict_dataset_val, batch_size=args.batch_size // 5)
-            dict_dataloader_test = DataLoader(dict_dataset_test, batch_size=args.batch_size // 5)
+    # with wandb.init(mode="offline",project="Violet",config=config):
+    #     wandb.watch(model,log="all", log_freq=1)
+    for e in range(start_epoch, start_epoch + 100):
+        dataloader_train = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.workers,
+                                    drop_last=True)
+        dataloader_val = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers,drop_last=True)
+        dict_dataloader_train = DataLoader(dict_dataset_train, batch_size=args.batch_size // 5, shuffle=True,
+                                        num_workers=args.workers)
+        dict_dataloader_val = DataLoader(dict_dataset_val, batch_size=args.batch_size // 5)
+        dict_dataloader_test = DataLoader(dict_dataset_test, batch_size=args.batch_size // 5)
 
 
-            train_loss = train_xe(model, dataloader_train, text_field,gpt_optimizer,dataloader_val,args)
+        train_loss = train_xe(model, dataloader_train, text_field,gpt_optimizer,dataloader_val,args)
 
-            writer.add_scalar('data/train_loss', train_loss, e)
+        writer.add_scalar('data/train_loss', train_loss, e)
 
-            # Validation loss
+        # Validation loss
 
-            val_loss = evaluate_loss(model, dataloader_val, loss_fn, text_field)
-            writer.add_scalar('data/val_loss', val_loss, e)
+        val_loss = evaluate_loss(model, dataloader_val, loss_fn, text_field)
+        writer.add_scalar('data/val_loss', val_loss, e)
 
-            # Validation scores
+        # Validation scores
 
-            scores = evaluate_metrics(model, dict_dataloader_val, text_field, args.exp_name+"_val", str(e))
-            val_cider = scores['CIDEr']
-            print("Cider score so far  "+str(scores['CIDEr']))
-            writer.add_scalar('data/val_cider', val_cider, e)
-            writer.add_scalar('data/val_bleu1', scores['BLEU'][0], e)
-            writer.add_scalar('data/val_bleu4', scores['BLEU'][3], e)
-            writer.add_scalar('data/val_rouge', scores['ROUGE'], e)
+        scores = evaluate_metrics(model, dict_dataloader_val, text_field, args.exp_name+"_val", str(e))
+        val_cider = scores['CIDEr']
+        print("Cider score so far  "+str(scores['CIDEr']))
+        writer.add_scalar('data/val_cider', val_cider, e)
+        writer.add_scalar('data/val_bleu1', scores['BLEU'][0], e)
+        writer.add_scalar('data/val_bleu4', scores['BLEU'][3], e)
+        writer.add_scalar('data/val_rouge', scores['ROUGE'], e)
 
-            logging.info("val cider"+str(val_cider)+"current epoch "+str(e))
-            logging.info("val bleu1" + str(scores["BLEU"][0]) + "current epoch " + str(e))
-            logging.info("val bleu4" + str(scores["BLEU"][3]) + "current epoch " + str(e))
-            logging.info("val rouge" + str(scores["ROUGE"]) + "current epoch " + str(e))
-
-
-
-            # # Test scores
-            # scores = evaluate_metrics(model, dict_dataloader_test, text_field, args.exp_name+"_test", str(e))
-            # writer.add_scalar('data/test_cider', scores['CIDEr'], e)
-            # writer.add_scalar('data/test_bleu1', scores['BLEU'][0], e)
-            # writer.add_scalar('data/test_bleu4', scores['BLEU'][3], e)
-            # writer.add_scalar('data/test_meteor', scores['METEOR'], e)
-            # writer.add_scalar('data/test_rouge', scores['ROUGE'], e)
-
-            # logging.info("test cider" + str(scores['CIDEr']) + "current epoch " + str(e))
-            # logging.info("test bleu1" + str(scores["BLEU"][0]) + "current epoch " + str(e))
-            # logging.info("test bleu4" + str(scores["BLEU"][3]) + "current epoch " + str(e))
-            # logging.info("test meteor" + str(scores["METEOR"]) + "current epoch " + str(e))
-            # logging.info("test rouge" + str(scores["ROUGE"]) + "current epoch " + str(e))
-            best = False
-            if val_cider >= best_cider:
-                best_cider = val_cider
-                patience +=1
-                best = True
-            else:
-                patience = 0
+        logging.info("val cider"+str(val_cider)+"current epoch "+str(e))
+        logging.info("val bleu1" + str(scores["BLEU"][0]) + "current epoch " + str(e))
+        logging.info("val bleu4" + str(scores["BLEU"][3]) + "current epoch " + str(e))
+        logging.info("val rouge" + str(scores["ROUGE"]) + "current epoch " + str(e))
 
 
 
-            if patience == 30:
-                break
-            torch.save({
-                'torch_rng_state': torch.get_rng_state(),
-                'cuda_rng_state': torch.cuda.get_rng_state(),
-                'numpy_rng_state': np.random.get_state(),
-                'random_rng_state': random.getstate(),
-                'epoch': e,
-                'val_loss': val_loss,
-                'val_cider': val_cider,
-                'state_dict': model.module.state_dict(),
-                'optimizer': gpt_optimizer.state_dict(),
-                'patience': patience,
-                'best_cider': best_cider,
-                'use_rl': use_rl,
-            }, 'saved_models/%s_last.pth' % args.exp_name)
+        # Test scores
+        scores = evaluate_metrics(model, dict_dataloader_test, text_field, args.exp_name+"_test", str(e))
+        writer.add_scalar('data/test_cider', scores['CIDEr'], e)
+        writer.add_scalar('data/test_bleu1', scores['BLEU'][0], e)
+        writer.add_scalar('data/test_bleu4', scores['BLEU'][3], e)
+        writer.add_scalar('data/test_meteor', scores['METEOR'], e)
+        writer.add_scalar('data/test_rouge', scores['ROUGE'], e)
 
-            if best:
-                copyfile('saved_models/%s_last.pth' % args.exp_name, 'saved_models/%s_best.pth' % args.exp_name)
-            wandb.log({"Cider score  ": val_cider})
-            wandb.log({"train_loss  ": train_loss})
-            wandb.log({"loss_val  ": val_loss})
-            wandb.log({"BLEU4 score  ": scores['BLEU'][3]})
-            wandb.log({"ROUGE score  ": scores['ROUGE']})
+        logging.info("test cider" + str(scores['CIDEr']) + "current epoch " + str(e))
+        logging.info("test bleu1" + str(scores["BLEU"][0]) + "current epoch " + str(e))
+        logging.info("test bleu4" + str(scores["BLEU"][3]) + "current epoch " + str(e))
+        logging.info("test meteor" + str(scores["METEOR"]) + "current epoch " + str(e))
+        logging.info("test rouge" + str(scores["ROUGE"]) + "current epoch " + str(e))
+        best = False
+        if val_cider >= best_cider:
+            best_cider = val_cider
+            patience +=1
+            best = True
+        else:
+            patience = 0
+
+
+
+        if patience == 30:
+            break
+        torch.save({
+            'torch_rng_state': torch.get_rng_state(),
+            'cuda_rng_state': torch.cuda.get_rng_state(),
+            'numpy_rng_state': np.random.get_state(),
+            'random_rng_state': random.getstate(),
+            'epoch': e,
+            'val_loss': val_loss,
+            'val_cider': val_cider,
+            'state_dict': model.module.state_dict(),
+            'optimizer': gpt_optimizer.state_dict(),
+            'patience': patience,
+            'best_cider': best_cider,
+            'use_rl': use_rl,
+        }, 'saved_models/%s_last.pth' % args.exp_name)
+
+        if best:
+            copyfile('saved_models/%s_last.pth' % args.exp_name, 'saved_models/%s_best.pth' % args.exp_name)
+            # wandb.log({"Cider score  ": val_cider})
+            # wandb.log({"train_loss  ": train_loss})
+            # wandb.log({"loss_val  ": val_loss})
+            # wandb.log({"BLEU4 score  ": scores['BLEU'][3]})
+            # wandb.log({"ROUGE score  ": scores['ROUGE']})
             
 
 #field.process
