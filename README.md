@@ -22,7 +22,7 @@ mkdir logs
 mkdir saved_models
 ```
 ## Train the model (refactored code)
-### simpler and more friendly impelementation(You can ignore the data folder when using this)
+### simpler and more friendly impelementation (You can ignore the data folder when using this)
 ```
 python train_refactored.py --batch_size 60 --head 12 --tau 0.3 --images_path coco_images.h5  --annotation_folder annotations --lr 1e-4 --random_seed 42 --log_file logs/log --decoder_layer 12 --optimizer_type adamw  --gradient_accumulation_steps 1  --exp_name violet
 ```
