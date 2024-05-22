@@ -288,7 +288,7 @@ if __name__ == '__main__':
     dataset_train = Coco_Dataset(img_root = args.images_path)
     dataset_val = Coco_Dataset(img_root = args.images_path, split="val")
 
-    ref_caps = load_references_from_json("./annotations/clean_val_coco.json")
+    ref_caps = load_references_from_json("./annotations/NLLB_val_coco.json")
     flag = 0
     for e in range(start_epoch, start_epoch + 100):
         dataloader_train = DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True, num_workers=args.workers,collate_fn = dataset_train.collate_fn,
