@@ -289,7 +289,7 @@ if __name__ == '__main__':
     dataset_val = Coco_Dataset(img_root = args.images_path, split="val")
 
     ref_caps = load_references_from_json("./annotations/NLLB_val_coco.json")
-    flag = 0
+
     for e in range(start_epoch, start_epoch + 100):
         dataloader_train = DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True, num_workers=args.workers,collate_fn = dataset_train.collate_fn,
                                     drop_last=True)
@@ -306,10 +306,10 @@ if __name__ == '__main__':
         val_loss = evaluate_loss(model, dataloader_val, loss_fn)
         scheduler.step(val_loss)
         writer.add_scalar('data/val_loss', val_loss, e)
-        if flag %2 ==0:
-            val_cider = evaluation(model, dataloader_val, ref_caps)
+
+        val_cider = evaluation(model, dataloader_val, ref_caps)
         # Validation scores
-        flag +=1
+
 
         best = False
         if val_cider >= best_cider:
@@ -321,7 +321,7 @@ if __name__ == '__main__':
 
 
 
-        if patience == 30:
+        if patience == 10:
             break
         torch.save({
             'torch_rng_state': torch.get_rng_state(),
