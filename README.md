@@ -22,6 +22,9 @@ make logs and saved_models directories
 mkdir logs
 mkdir saved_models
 ```
+##Checkpoint
+Early checkpoint: [Download] (https://mbzuaiac-my.sharepoint.com/:u:/g/personal/abdelrahman_mohamed_mbzuai_ac_ae/Ed04OUJoG4tLtUipJRWW4fgBPs2qUfVAIQUt_Aym40W-Aw?e=3S2E01)
+
 ## Train the model (refactored code)
 ### simpler and more friendly impelementation (You can ignore the data and evaluation folders when using this)
 ```
